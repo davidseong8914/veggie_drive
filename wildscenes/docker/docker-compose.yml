@@ -1,0 +1,20 @@
+services:
+  wildscenes:
+    image: wildscenes
+    pull_policy: never
+    container_name: wildscenes-dev
+    volumes:
+      - /home/patrick/Desktop/WildScenes:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all

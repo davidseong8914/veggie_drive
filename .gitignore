@@ -1,2 +1,9 @@
 # wildscenes/docker/*
 wildscenes/pretrained_models/*
+
+veggie_ws/build/*
+veggie_ws/install/*
+veggie_ws/log/*
+
+veggie_ws/src/livox_ros_driver2
+

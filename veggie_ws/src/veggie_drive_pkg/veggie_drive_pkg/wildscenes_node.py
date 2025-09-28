@@ -5,12 +5,17 @@ from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 import numpy as np
+import time
 from . import wildscenes_segmentation
 
 class WildscenesSegmentation(Node):
     def __init__(self):
         super().__init__('wildscenes_segmentation')
         self.get_logger().info('Wildscenes node started')
+        
+        # Rate limiting
+        self.last_process_time = 0
+        self.min_interval = 0.5  # Process at most every 0.5 seconds
         
         wildscenes_segmentation.initialize_model()
         self.get_logger().info('Wildscenes node initialized')
@@ -19,14 +24,20 @@ class WildscenesSegmentation(Node):
             PointCloud2, 
             '/livox/lidar',
             self.lidar_callback,
-            10)
+            1)  # Reduced queue size to avoid message drops
         
         self.publisher = self.create_publisher(
             PointCloud2, 
             'wildscenes_segmented', 
-            10)
+            1)  # Reduced queue size to avoid message drops
 
     def lidar_callback(self, msg: PointCloud2):
+        # Rate limiting to avoid overwhelming the system
+        current_time = time.time()
+        if current_time - self.last_process_time < self.min_interval:
+            return
+        
+        self.last_process_time = current_time
         self.get_logger().info("Received PointCloud2 message")
 
         points_list = list(point_cloud2.read_points(
@@ -48,37 +59,44 @@ class WildscenesSegmentation(Node):
         segmented_points = wildscenes_segmentation.run_segmentation(points)
 
         if segmented_points is not None:
-            self.get_logger().info(f"Segmented {len(segmented_points)} points")
-
-            # convert segmented points to ROS2 PointCloud2
+            # Debug: Check segmented points structure
+            self.get_logger().info(f"Segmented points shape: {segmented_points.shape}")
+            self.get_logger().info(f"Sample RGB values: {segmented_points[0, 3:6]}")
+            
             segmented_points_msg = self.convert_to_pointcloud2(segmented_points, msg.header)
             self.publisher.publish(segmented_points_msg)
+            self.get_logger().info("Published segmented point cloud")
 
         else:
             self.get_logger().warning("Segmentation failed")
 
     def convert_to_pointcloud2(self, segmented_points, header):
-        # convert segmented points to ROS2 PointCloud2
         fields = [
             point_cloud2.PointField(name='x', offset=0, datatype=point_cloud2.PointField.FLOAT32, count=1),
             point_cloud2.PointField(name='y', offset=4, datatype=point_cloud2.PointField.FLOAT32, count=1),
             point_cloud2.PointField(name='z', offset=8, datatype=point_cloud2.PointField.FLOAT32, count=1),
-            # point_cloud2.PointField(name='intensity', offset=12, datatype=point_cloud2.PointField.FLOAT32, count=1),
-            point_cloud2.PointField(name='class', offset=16, datatype=point_cloud2.PointField.FLOAT32, count=1),
+            point_cloud2.PointField(name='rgb', offset=12, datatype=point_cloud2.PointField.UINT32, count=1),
+            point_cloud2.PointField(name='class', offset=16, datatype=point_cloud2.PointField.UINT8, count=1),
         ]
 
         points_list = []
-        for point in segmented_points:
+        for i, point in enumerate(segmented_points):
+            if i < 3:  # Debug first 3 points
+                self.get_logger().info(f"Point {i}: x={point[0]:.2f}, y={point[1]:.2f}, z={point[2]:.2f}, r={point[3]}, g={point[4]}, b={point[5]}, class={point[6]}")
+            
+            # Pack RGB into single UINT32: (r << 16) | (g << 8) | b
+            r, g, b = int(point[3]), int(point[4]), int(point[5])
+            rgb_packed = (r << 16) | (g << 8) | b
+            
             points_list.append([
                 float(point[0]), # x
                 float(point[1]), # y
                 float(point[2]), # z
-                # float(point[3]), # intensity
-                float(point[3]) # class
+                rgb_packed,      # rgb (packed)
+                int(point[6])    # class
             ])
 
-        cloud_msg = point_cloud2.create_cloud(header, fields, points_list)
-        return cloud_msg
+        return point_cloud2.create_cloud(header, fields, points_list)
 
 
 def main(args=None):

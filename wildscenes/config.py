@@ -1,7 +1,8 @@
-_base_ = [
-    '../_base_/datasets/wildscenes.py', '../_base_/models/cylinder3d.py',
-    '../_base_/default_runtime.py'
-]
+# Simplified config without base dependencies
+# _base_ = [
+#     '../_base_/datasets/wildscenes.py', '../_base_/models/cylinder3d.py',
+#     '../_base_/default_runtime.py'
+# ]
 
 # optimizer
 lr = 0.001

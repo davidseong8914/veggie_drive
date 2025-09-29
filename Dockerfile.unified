@@ -1,0 +1,123 @@
+# Base: Ubuntu 22.04
+FROM ubuntu:22.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    build-essential \
+    cmake \
+    libsparsehash-dev \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ROS2 Humble
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg2 \
+    lsb-release \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y \
+    ros-humble-desktop \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rosdep init || true && rosdep update
+
+# CUDE(Pytorch)
+RUN apt-get update && apt-get install -y \
+    wget \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb \
+    && dpkg -i cuda-keyring_1.0-1_all.deb \
+    && apt-get update \
+    && apt-get install -y cuda-toolkit-12-1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# CUDA environment
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# Pytorch
+RUN pip3 install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 --index-url https://download.pytorch.org/whl/cu121
+
+# WildScenes dependencies
+RUN pip3 install \
+    opencv-python==4.11.0.86 \
+    typing_extensions==4.13.2 \
+    ftfy==6.3.1 \
+    regex==2024.11.6
+
+# torchsparse
+WORKDIR /home
+RUN git clone https://github.com/mit-han-lab/torchsparse.git
+WORKDIR torchsparse
+RUN git checkout 74099d1
+RUN python3 setup.py install
+
+# OpenMMLab
+RUN pip3 install -U openmim==0.3.9
+RUN mim install 'mmengine==0.10.7'
+
+# mmcv
+ENV FORCE_CUDA="1"
+ARG CUDA_ARCH="Maxwell;Maxwell+Tegra;Pascal;Volta;Turing"
+ENV TORCH_CUDA_ARCH_LIST=${CUDA_ARCH}
+WORKDIR /home
+RUN git clone https://github.com/open-mmlab/mmcv.git
+WORKDIR /home/mmcv
+RUN git checkout ea53ed0
+RUN python3 setup.py install
+RUN python3 .dev_scripts/check_installation.py
+
+# mmdetection3d 
+RUN mim install 'mmdet==3.0.0'
+RUN mim install 'mmsegmentation==1.2.2'
+RUN mim install 'mmdet3d==1.4.0'
+
+# ROS2 environment setup
+RUN echo 'source /opt/ros/humble/setup.bash' >> /etc/bash.bashrc
+ENV ROS_DISTRO=humble
+
+# clean up
+WORKDIR /home
+RUN rm -rf torchsparse mmcv
+
+# working directory
+WORKDIR /veggie_drive
+
+# envrionment test
+RUN python3 -c "import torch; print('PyTorch version:', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+RUN bash -c "source /opt/ros/humble/setup.bash && python3 -c 'import rclpy; print(\"ROS2 import successful\")'"
+
+# tmux
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    build-essential \
+    cmake \
+    libsparsehash-dev \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    tmux \
+    && rm -rf /var/lib/apt/lists/*

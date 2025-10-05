@@ -1,0 +1,79 @@
+# syntax=docker/dockerfile:1.7
+# Jetson Orin (L4T/JetPack 6) + ROS 2 Jazzy + CUDA PyTorch + OpenMMLab (mmdet/mmseg)
+ARG BASE_IMAGE=dustynv/ros:jazzy-ros-base-r36.4.0-cu128-24.04
+ARG USE_L4T=1
+ARG JETPACK=6
+ARG INSTALL_OPENMMLAB=1
+FROM ${BASE_IMAGE}
+ARG USE_L4T
+ARG JETPACK
+ARG INSTALL_OPENMMLAB
+
+# Non-interactive
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PIP_INDEX_URL=https://pypi.org/simple
+ENV PIP_EXTRA_INDEX_URL=
+
+# Base deps (and remove stale ROS repo file if present)
+RUN rm -f /etc/apt/sources.list.d/ros2.list || true \
+    && apt-get update && apt-get install -y \
+    python3 python3-pip python3-dev python3-venv \
+    git curl wget \
+    build-essential cmake libsparsehash-dev \
+    ffmpeg libsm6 libxext6 libopenblas0 tmux \
+    && rm -rf /var/lib/apt/lists/*
+
+# Source ROS 2
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc || true \
+    && echo "ROS_DISTRO=jazzy" >> /etc/environment
+
+# CUDA env (toolkit already in L4T base)
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# PyTorch wheels for JetPack 6 (arm64, cu128)
+RUN ARCH=$(dpkg --print-architecture) \
+    && if [ "$ARCH" = "arm64" ] && [ "${JETPACK}" = "6" ]; then \
+         PIP_EXTRA_INDEX_URL= PIP_INDEX_URL=https://pypi.jetson-ai-lab.io/jp6/cu128 pip3 install --no-cache-dir torch torchvision torchaudio; \
+       fi \
+    && python3 -c "import torch; print('Torch:', getattr(torch,'__version__','n/a')); print('CUDA avail:', hasattr(torch,'cuda') and torch.cuda.is_available())" || true
+
+# Project Python deps
+RUN pip3 install \
+    opencv-python==4.11.0.86 \
+    typing_extensions==4.13.2 \
+    ftfy==6.2.3 \
+    regex==2024.11.6
+
+# torchsparse
+WORKDIR /home
+RUN git clone https://github.com/mit-han-lab/torchsparse.git \
+    && cd torchsparse \
+    && git checkout 74099d1 \
+    && python3 setup.py install
+
+# OpenMMLab (mmengine, mmcv built CPU-only at image build time; CUDA ops can be built later)
+ENV FORCE_CUDA="0"
+ARG CUDA_ARCH="Maxwell;Maxwell+Tegra;Pascal;Volta;Turing"
+ENV TORCH_CUDA_ARCH_LIST=${CUDA_ARCH}
+RUN if [ "${INSTALL_OPENMMLAB}" = "1" ]; then \
+      pip3 install mmengine==0.10.7 && \
+      cd /home && git clone https://github.com/open-mmlab/mmcv.git && \
+      cd /home/mmcv && git checkout ea53ed0 && python3 setup.py install && \
+      pip3 install 'mmdet==3.0.0' 'mmsegmentation==1.2.2'; \
+    else \
+      echo "Skipping OpenMMLab"; \
+    fi
+
+# Clean build sources
+WORKDIR /home
+RUN rm -rf torchsparse mmcv
+
+# Workdir
+WORKDIR /veggie_drive
+
+# Quick environment check
+RUN python3 -c "import torch; print('PyTorch version:', getattr(torch,'__version__','n/a')); print('CUDA available:', hasattr(torch,'cuda') and torch.cuda.is_available())"
+

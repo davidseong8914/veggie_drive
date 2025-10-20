@@ -1,0 +1,105 @@
+# syntax=docker/dockerfile:1
+# Jetson Orin – JetPack 5.x (L4T r35.3.1, Ubuntu 20.04) + ROS 2 Humble + PyTorch + OpenMMLab
+ARG BASE_IMAGE=dustynv/ros:foxy-pytorch-l4t-r35.3.1
+FROM ${BASE_IMAGE}
+
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics \
+    DEBIAN_FRONTEND=noninteractive \
+    TZ=America/New_York \
+    ROS_DISTRO=foxy \
+    QT_X11_NO_MITSHM=1
+
+# timezone
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# CUDA env (JP5 pathing)
+ENV CUDA_HOME=/usr/local/cuda
+ENV CUDA_PATH=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${CUDA_HOME}/targets/aarch64-linux/lib:${LD_LIBRARY_PATH}
+RUN if [ -d /usr/local/cuda-11.4 ]; then ln -sfn /usr/local/cuda-11.4 /usr/local/cuda; fi && \
+    if [ -d /usr/local/cuda/targets/aarch64-linux/lib ]; then ln -sfn /usr/local/cuda/targets/aarch64-linux/lib /usr/local/cuda/lib64; fi
+
+# ROS GPG error
+RUN rm -f /etc/apt/sources.list.d/ros2.list /etc/apt/sources.list.d/ros-latest.list || true
+
+# base deps (use system OpenCV, opencv-python caused errors)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git build-essential cmake ninja-build \
+    libsparsehash-dev \
+    ffmpeg libsm6 libxext6 libopenblas0 libopenblas-dev \
+    libprotobuf-dev protobuf-compiler \
+    libjpeg-dev libpng-dev libtiff-dev libwebp-dev \
+    python3-opencv libgl1 libglib2.0-0 \
+    x11-apps \
+    python3-colcon-common-extensions \
+    tmux \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir "pip<25" "setuptools<70" wheel && \
+    pip3 install --no-cache-dir --force-reinstall "numpy==1.23.5"
+
+# Torch sanity check (optional)
+RUN python3 - <<'PY'
+import torch
+print("Torch:", torch.__version__, "CUDA:", torch.version.cuda, "CUDA available:", torch.cuda.is_available())
+PY
+
+RUN pip3 install --no-cache-dir "packaging>=24.0"
+
+# OpenMMLab
+RUN pip3 install --no-cache-dir --no-deps openmim==0.3.9 && \
+    pip3 install --no-deps --no-cache-dir mmengine==0.10.7 && \
+    # pip3 install --no-deps --no-cache-dir mmengine==0.7.4 && \
+    pip3 install --no-cache-dir "pillow==10.4.0" "matplotlib<3.8" addict termcolor yapf ftfy==6.2.3 regex==2024.11.6
+
+# Build mmcv from source with CUDA (sm_87 for Orin)
+ENV FORCE_CUDA=1
+ARG CUDA_ARCH="8.7"
+ENV TORCH_CUDA_ARCH_LIST=${CUDA_ARCH}
+WORKDIR /home
+RUN git clone https://github.com/open-mmlab/mmcv.git && \
+    cd mmcv && \
+    git checkout ea53ed0 && \
+    CUDA_HOME=${CUDA_HOME} CUDA_PATH=${CUDA_PATH} TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} FORCE_CUDA=1 \
+    pip3 install --no-cache-dir --no-build-isolation -v .
+
+# Verify mmcv
+RUN python3 - <<'PY'
+import torch, mmcv
+print("mmcv:", mmcv.__version__, "| torch cuda:", torch.version.cuda)
+PY
+
+RUN pip3 install --no-cache-dir --ignore-installed tabulate colorama model-index opendatalab && \
+    mim install 'mmdet==3.0.0' && \
+    mim install 'mmsegmentation==1.2.2' && \
+    mim install 'mmdet3d==1.4.0'
+
+# remove opencv-python and opencv-contrib-python to avoid conflicts
+RUN pip3 uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
+
+
+# sensor_msgs_py from source 
+WORKDIR /opt/sensor_msgs_ws
+RUN bash -lc "source /opt/ros/foxy/install/setup.bash && \
+    mkdir -p src && cd src && \
+    git clone -b foxy https://github.com/ros2/common_interfaces.git && \
+    cd .. && colcon build --packages-select sensor_msgs_py --merge-install"
+RUN echo 'source /opt/sensor_msgs_ws/install/setup.bash' >> /etc/bash.bashrc
+RUN echo 'source /opt/ros/foxy/install/setup.bash' >> /root/.bashrc
+
+# workspace
+WORKDIR /veggie_drive
+RUN mkdir -p /veggie_drive/wildscenes/pretrained_models
+# COPY wildscenes/pretrained_models/cylinder3d_wildscenes.pth /veggie_drive/wildscenes/pretrained_models/cylinder3d_wildscenes.pth
+
+# cleanup
+WORKDIR /home
+RUN rm -rf mmcv
+
+# workdir
+WORKDIR /veggie_drive
+
+# Start in tmux when the container launches (attach or create)
+CMD ["bash","-lc","tmux new-session -A -s ros_session"]

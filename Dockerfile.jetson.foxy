@@ -1,0 +1,135 @@
+# syntax=docker/dockerfile:1.7
+# Jetson Orin (L4T/JetPack 5.x) + ROS 2 foxy + CUDA PyTorch + OpenMMLab (mmdet/mmseg)
+ARG BASE_IMAGE=dustynv/ros:foxy-ros-base-l4t-r35.3.1
+FROM ${BASE_IMAGE}
+
+# nvidia-container-runtime config
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
+
+# Non-interactive & set timezone
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/New_York
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# ROS 2 foxy
+ENV ROS_DISTRO=foxy
+
+# Add ROS2 repositories and install base dependencies
+RUN rm -f /etc/apt/sources.list.d/ros2.list || true \
+    && apt-get update && apt-get install -y curl gnupg2 lsb-release \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
+    && apt-get update && apt-get install -y \
+    git \
+    build-essential cmake ninja-build \
+    libsparsehash-dev \
+    ffmpeg libsm6 libxext6 libopenblas0 \
+    python3-opencv libgl1 libglib2.0-0 \
+    cuda-toolkit-11-4 \
+    libopenblas-dev \
+    libprotobuf-dev protobuf-compiler \
+    libjpeg-dev libpng-dev libtiff-dev libwebp-dev \
+    ros-foxy-tf2-ros \
+    ros-foxy-tf2-tools \
+    python3-colcon-common-extensions \
+    tmux \
+    && rm -rf /var/lib/apt/lists/*
+
+# CUDA symlink to toolkit
+RUN if [ -d /usr/local/cuda-11.4 ]; then ln -sfn /usr/local/cuda-11.4 /usr/local/cuda; fi
+
+# create lib64 symlink for build tools
+RUN if [ -d /usr/local/cuda/targets/aarch64-linux/lib ]; then \
+      ln -sfn /usr/local/cuda/targets/aarch64-linux/lib /usr/local/cuda/lib64; \
+    fi
+
+# CUDA env 
+ENV CUDA_HOME=/usr/local/cuda
+ENV CUDA_PATH=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${CUDA_HOME}/targets/aarch64-linux/lib:${LD_LIBRARY_PATH}
+
+# Keep pip/setuptools at known good versions for JP5 compatibility
+RUN pip3 install --no-cache-dir "pip<25" "setuptools<70" wheel
+
+# Copy PyTorch wheel and install (JP5.x compatible build)
+COPY torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl /tmp/
+RUN pip3 install --no-cache-dir /tmp/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl && \
+    rm /tmp/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl
+
+    # Project Python dependencies
+RUN pip3 install \
+    typing_extensions==4.13.2 \
+    ftfy==6.2.3 \
+    regex==2024.11.6 && \
+    pip3 install --no-cache-dir --upgrade --ignore-installed PyYAML==6.0.1
+
+# Install torchsparse
+WORKDIR /home
+RUN git clone https://github.com/mit-han-lab/torchsparse.git
+WORKDIR /home/torchsparse
+RUN git checkout 74099d1
+RUN python3 setup.py install
+
+# Install openmim + mmengine
+RUN pip3 install -U openmim==0.3.9
+RUN pip3 install --no-deps mmengine==0.10.7
+
+# Install Pillow and matplotlib via pip to ensure proper detection by mmcv
+RUN pip3 install --no-cache-dir Pillow matplotlib
+
+# Install missing mmengine dependencies (skip opencv-python since system has it)
+RUN pip3 install --no-cache-dir addict termcolor yapf
+
+# Build mmcv from source
+ENV FORCE_CUDA="1"
+# sm_87 for Jetson Orin
+ARG CUDA_ARCH="8.7"
+ENV TORCH_CUDA_ARCH_LIST=${CUDA_ARCH}
+
+WORKDIR /home
+RUN git clone https://github.com/open-mmlab/mmcv.git
+WORKDIR /home/mmcv
+RUN git checkout ea53ed0
+RUN CUDA_HOME=${CUDA_HOME} \
+    CUDA_PATH=${CUDA_PATH} \
+    python3 setup.py install
+
+# Verify mmcv installation
+RUN python3 - <<'PY'
+import torch, mmcv
+print("mmcv:", mmcv.__version__, "| torch cuda:", torch.version.cuda)
+PY
+
+# Install OpenMMLab frameworks
+RUN mim install 'mmdet==3.0.0'
+RUN mim install 'mmsegmentation==1.2.2'
+RUN mim install 'mmdet3d==1.4.0'
+
+WORKDIR /opt/sensor_msgs_ws
+RUN bash -lc "source /opt/ros/foxy/install/setup.bash && \
+    mkdir -p src && cd src && \
+    git clone -b foxy https://github.com/ros2/common_interfaces.git && \
+    cd .. && colcon build --packages-select sensor_msgs_py --merge-install"
+RUN echo 'source /opt/ros/foxy/install/setup.bash' >> /etc/bash.bashrc && \
+    echo 'source /opt/sensor_msgs_ws/install/setup.bash' >> /etc/bash.bashrc
+
+ENV OMP_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+ENV QT_X11_NO_MITSHM=1
+
+# Clean up
+WORKDIR /home
+RUN rm -rf torchsparse mmcv
+
+# Workdir
+WORKDIR /veggie_drive
+
+CMD ["bash","-lc","tmux new-session -A -s ros_session"]
+
+
+
+
+
+

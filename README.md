@@ -1,5 +1,4 @@
 # WildScenes ROS2 Segmentation
-
 Real-time segmentation using WildScenes Cylinder3D model in ROS2 environment. LiDAR (Livox MID-360) point cloud → WildScenes → Segmented Cloud with accurate color representation.
 
 ## Architecture
@@ -7,27 +6,18 @@ Real-time segmentation using WildScenes Cylinder3D model in ROS2 environment. Li
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   LiDAR Data    │    │   ROS2 Node      │    │ WildScenes      │
-│                 │    │   (Python)       │    │ Cylinder3D      │
-│ • Point Cloud   │───▶│ • Subscribes     │───▶│ • 3D Semantic   │
-│ • Segmented     │◀───│ • Publishes      │◀───│ • GPU Accelerated│
-│                 │    │ • Real-time      │    │                 │
+│                 │    │         │    │ Cylinder3D      │
+│ • Point Cloud   │───▶│ • Subscribes     │───▶│ • 3D Semantic segmentation  │
+│ • Segmented pointcloud   │◀───│ • Publishes      │◀───│ 
+│                 │    │       │    │                 │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
-## Features
-
-- ✅ **Real-time segmentation** at 2 FPS
-- ✅ **WildScenes classification** (dirt, grass, trees, fences, structures)
-- ✅ **GPU acceleration** with CUDA
-- ✅ **ROS2 integration** with proper message formatting
-- ✅ **RViz visualization** with color-coded terrain classes
-- ✅ **Docker support** for easy deployment
-
 ## Files
-
 - `veggie_ws/src/veggie_drive_pkg/` - ROS2 package with segmentation node
 - `wildscenes/` - Model configuration and utilities
-- `Dockerfile.unified` - Complete environment setup
+- `Dockerfile.unified` - Docker environment for x86
+- 'Docker 
 - `segmented_points.rviz` - RViz configuration for visualization
 
 ## Quick Start
@@ -35,8 +25,8 @@ Real-time segmentation using WildScenes Cylinder3D model in ROS2 environment. Li
 ### 1. Prerequisites
 
 - **Docker**
-- **NVIDIA GPU** 
-- **ROS2 Humble** 
+- **Laptop with GPU**
+- **Nvidia Jetson**
 
 ### 2. Build and Run
 
@@ -65,6 +55,30 @@ cd /veggie_drive/veggie_ws
 source /opt/ros/humble/setup.bash
 colcon build --packages-select veggie_drive_pkg
 source install/setup.bash
+```
+
+### 2.1 Build and Run Jetson
+```bash
+docker run --rm -it --network host --runtime=nvidia \
+  -e DISPLAY -e XAUTHORITY -e QT_X11_NO_MITSHM=1 -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e USER=$USER -e HOME=$HOME \
+  -e XDG_RUNTIME_DIR=/tmp/runtime-$(id -u) \
+  -e ROS_LOG_DIR=$HOME/.ros/log \
+  -e ROS_DISTRO=foxy \
+  -v ${XAUTHORITY:-$HOME/.Xauthority}:${XAUTHORITY:-$HOME/.Xauthority}:ro \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+  -v /dev/dri:/dev/dri \
+  -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
+  -v $HOME:$HOME \
+  -v $(pwd)/veggie_drive:/veggie_drive \
+  foxy:jetson bash
+
+
+cd /veggie_drive/veggie_ws
+source /opt/ros/foxy/install/setup.bash
+colcon build --packages-select veggie_drive_pkg
+source install/setup.bash
+
 ```
 
 ### 3. Launch Segmentation System
@@ -141,6 +155,15 @@ The system classifies points into these semantic classes:
 5. **Converts classes to RGB colors** for visualization
 6. **Publishes segmented** point cloud to `/wildscenes_segmented`
 
+## Features
+
+- ✅ **Real-time segmentation** at 2 FPS
+- ✅ **WildScenes classification** (dirt, grass, trees, fences, structures)
+- ✅ **GPU acceleration** with CUDA
+- ✅ **ROS2 integration** with proper message formatting
+- ✅ **RViz visualization** with color-coded terrain classes
+- ✅ **Docker support** for easy deployment
+
 
 
 
@@ -152,3 +175,10 @@ The system classifies points into these semantic classes:
 - Color-coded visualization** in RViz
 - 90%+ point cloud coverage** with 200K points per frame
 - Stable operation** with comprehensive error handling
+
+
+
+veg_foox:1025 - Dockefile.jetson.optimized... 
+  - this failed and is definitely not the way to go
+foxy:jetson - copy of Dockerfile.jetson with foxy 
+  - 

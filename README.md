@@ -58,21 +58,20 @@ source install/setup.bash
 ### 2.2 Build and Run Jetson
 ```bash
 # docker build -f Dockerfile.jetson.wildscenes -t wild:fox .
-docker build -f Dockerfile.jetson.foxy -t foxy:jetson2 .
+docker build -f Dockerfile.jetson.foxy -t foxy:jetsont1 .
+# docker build --no-cache -f Dockerfile.jetson.foxy -t foxy:jetsont1 .
 
-docker run --rm -it --network host --runtime=nvidia \
-  -e DISPLAY -e XAUTHORITY -e QT_X11_NO_MITSHM=1 -e NVIDIA_DRIVER_CAPABILITIES=all \
-  -e USER=$USER -e HOME=$HOME \
-  -e XDG_RUNTIME_DIR=/tmp/runtime-$(id -u) \
-  -e ROS_LOG_DIR=$HOME/.ros/log \
-  -e ROS_DISTRO=foxy \
-  -v ${XAUTHORITY:-$HOME/.Xauthority}:${XAUTHORITY:-$HOME/.Xauthority}:ro \
-  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-  -v /dev/dri:/dev/dri \
-  -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
-  -v $HOME:$HOME \
-  -v $(pwd):/veggie_drive \
-  foxy:jetson bash
+# version with rviz2 running on host
+docker run --rm -it \
+ --network host \
+ --runtime=nvidia \
+ -e NVIDIA_DRIVER_CAPABILITIES=all \
+ -e ROS_DOMAIN_ID=42 \
+ -e ROS_LOCALHOST_ONLY=0 \
+ -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+ -v $(pwd):/veggie_drive \
+ foxy:jetsont1 \
+ bash
 
 cd /veggie_drive/veggie_ws
 source /opt/ros/foxy/install/setup.bash
@@ -84,6 +83,8 @@ source install/setup.bash
 ### 2.3 Circular import fix
 ```
 pip3 uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
+
+apt-get remove opencv-dev opencv-libs
 
 apt-get update && apt-get install -y --no-install-recommends \
     libopencv-dev python3-opencv \
@@ -111,9 +112,9 @@ ros2 launch veggie_drive_pkg wildscenes_launch.py
 ros2 bag play data/livox_data_jetson_0.db3 --rate 0.5
 ros2 bag play data/livox_data_jetson_0.db3 --rate 1.0
 
-
-# Terminal 3: Launch RViz for visualization
-rviz2 -d segmented_points.rviz
+# Launch RViz for visualization on host machine
+source /opt/ros/foxy/setup.bash
+ros2 run rviz2 rviz2 --display-config /home/unitree/Desktop/veggie_drive/segmented_points.rviz
 ```
 
 ### 4. Monitor Results
@@ -201,94 +202,3 @@ The system classifies points into these semantic classes:
 - Color-coded visualization** in RViz
 - 90%+ point cloud coverage** with 200K points per frame
 - Stable operation** with comprehensive error handling
-
-
-
-veg_fox:1025 - Dockefile.jetson.optimized... 
-  - this failed and is definitely not the way to go
-  Dockerfile.jetson.optimized (X) wrong
-  and 
-  Dockerfile.jetson.wildscenes (X) not yet
-
-foxy:jetson - copy of Dockerfile.jetson with foxy 
-  
-
-## rviz error 
-// on the jetson
-export DISPLAY=localhost:10.0
-set ROS_DOMAI_ID=42 // arbitrary value but different than system // this was also added to ~/.bashrc
-
-
-xhost +local:docker // run on the host machine
-
-export DISPLAY=localhost:10.0
-export XAUTH=/tmp/.docker.xauth
-
-docker run --rm -it --network host --runtime=nvidia \
-  -e DISPLAY=$DISPLAY \
-  -e XAUTHORITY=$XAUTH \
-  -e QT_X11_NO_MITSHM=1 -e NVIDIA_DRIVER_CAPABILITIES=all \
-  -e USER=$USER -e HOME=$HOME \
-  -e XDG_RUNTIME_DIR=/tmp/runtime-$(id -u) \
-  -e ROS_LOG_DIR=$HOME/.ros/log \
-  -e ROS_DISTRO=foxy \
-  -e ROS_DOMAIN_ID=42 \
-  -v $XAUTH:$XAUTH:rw \
-  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-  -v /dev/dri:/dev/dri \
-  -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
-  -v $HOME:$HOME \
-  -v $(pwd):/veggie_drive \
-  foxy:jetson bash
-
-export DISPLAY=localhost:10.0
-apt update && apt install -y ros-foxy-rviz2
-rviz2
-
----
-
-## Setting Up X11 Forwarding for RViz2 on a New Laptop
-
-If SSH'ing into the Jetson from a new laptop to use RViz2:
-
-### On Your Local Laptop (one-time setup):
-```bash
-# Allow Docker containers to access X11
-xhost +local:docker
-
-# Reconnect to Jetson with X11 forwarding
-ssh -X unitree@<jetson-ip>
-```
-
-### On the Jetson (in SSH session):
-```bash
-# Set display and ROS domain (already in ~/.bashrc on this Jetson)
-export DISPLAY=localhost:10.0
-export ROS_DOMAIN_ID=42
-
-# Start Docker with proper X11 configuration
-export XAUTH=$HOME/.docker.xauth
-rm -f $XAUTH && touch $XAUTH
-xauth nlist $DISPLAY | sed -e 's/^..../ffff/' | xauth -f $XAUTH nmerge -
-
-docker run --rm -it --network host --runtime=nvidia \
-  -e DISPLAY=$DISPLAY \
-  -e QT_X11_NO_MITSHM=1 \
-  -e NVIDIA_DRIVER_CAPABILITIES=all \
-  -e ROS_DOMAIN_ID=42 \
-  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-  -v $HOME/.Xauthority:/root/.Xauthority:ro \
-  -v $HOME:$HOME \
-  -v $(pwd):/veggie_drive \
-  foxy:jetson bash
-
-# Inside Docker container:
-apt update && apt install -y ros-foxy-rviz2  # First time only
-source /opt/ros/foxy/setup.bash
-rviz2
-```
-
-**Notes:**
-- `ROS_DOMAIN_ID=42` isolates ROS2 communication from other processes
-- Must use `ssh -X` (capital X) not `ssh -x` (lowercase)
-- `xhost +local:docker` must run on your local machine, not the Jetson

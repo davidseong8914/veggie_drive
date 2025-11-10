@@ -3,21 +3,18 @@ Real-time segmentation using WildScenes Cylinder3D model in ROS2 environment. Li
 
 ## Architecture
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   LiDAR Data    │    │   ROS2 Node      │    │ WildScenes      │
-│                 │    │         │    │ Cylinder3D      │
-│ • Point Cloud   │───▶│ • Subscribes     │───▶│ • 3D Semantic segmentation  │
-│ • Segmented pointcloud   │◀───│ • Publishes      │◀───│ 
-│                 │    │       │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
+- **LiDAR Data**  
+  - Streams raw point clouds from the Livox MID-360 sensor.
+- **ROS2 Node (`veggie_drive_pkg`)**  
+  - Subscribes to `/livox/lidar`, preprocesses points, runs inference, and publishes `/wildscenes_segmented`.
+- **WildScenes Cylinder3D Model**  
+  - Performs semantic segmentation on the filtered point cloud and returns class labels.
 
 ## Files
 - `veggie_ws/src/veggie_drive_pkg/` - ROS2 package with segmentation node
 - `wildscenes/` - Model configuration and utilities
 - `Dockerfile.unified` - Docker environment for x86
-- 'Docker 
+- 'Dockerfile.jet.foxy' - Docker environment for jetson
 - `segmented_points.rviz` - RViz configuration for visualization
 
 ## Quick Start
@@ -81,17 +78,15 @@ source install/setup.bash
 ```
 
 ### 2.3 Circular import fix
-```
+```bash
 pip3 uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true
-
-apt-get remove opencv-dev opencv-libs
-
-apt-get update && apt-get install -y --no-install-recommends \
-    libopencv-dev python3-opencv \
-    libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
-
+sudo apt-get remove -y opencv-dev opencv-libs
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  libopencv-dev python3-opencv \
+  libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
 export OPENCV_DISABLE_OPENCL=1
-export OPENCV_IO_ENABLE_OPENEXR=0 
+export OPENCV_IO_ENABLE_OPENEXR=0
 ```
 
 ### 2.4 Tmux
@@ -109,7 +104,6 @@ tmux split-window -v
 ros2 launch veggie_drive_pkg wildscenes_launch.py
 
 # Terminal 2: Play LiDAR data (if you have bag files)
-ros2 bag play data/livox_data_jetson_0.db3 --rate 0.5
 ros2 bag play data/livox_data_jetson_0.db3 --rate 1.0
 
 # Launch RViz for visualization on host machine
@@ -196,9 +190,9 @@ The system classifies points into these semantic classes:
 
 
 ## Results
-- Real-time terrain segmentation** at 2 FPS
-- GPU-accelerated inference** with CUDA
-- Proper ROS2 integration** with PointCloud2 messages
-- Color-coded visualization** in RViz
-- 90%+ point cloud coverage** with 200K points per frame
-- Stable operation** with comprehensive error handling
+- Real-time terrain segmentation at 2 FPS
+- GPU-accelerated inference with CUDA
+- Proper ROS2 integration with PointCloud2 messages
+- Color-coded visualization in RViz
+- 90%+ point cloud coverage with 200K points per frame
+- Stable operation with comprehensive error handling

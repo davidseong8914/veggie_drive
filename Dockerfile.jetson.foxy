@@ -53,12 +53,16 @@ ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${CUDA_HOME}/targets/aarch64-linux/lib:${
 # Keep pip/setuptools at known good versions for JP5 compatibility
 RUN pip3 install --no-cache-dir "pip<25" "setuptools<70" wheel
 
-# Copy PyTorch wheel and install (JP5.x compatible build)
-COPY torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl /tmp/
-RUN pip3 install --no-cache-dir /tmp/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl && \
-    rm /tmp/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl
+# uninstall torch 2.0.0nv23.05
+RUN pip3 uninstall -y torch torchvision torchaudio || true
 
-    # Project Python dependencies
+# Copy PyTorch wheel and install (JP5.x compatible build)
+COPY torch-1.11.0-cp38-cp38-linux_aarch64.whl /tmp/
+
+RUN pip3 install --no-cache-dir /tmp/torch-1.11.0-cp38-cp38-linux_aarch64.whl && \
+    rm /tmp/torch-1.11.0-cp38-cp38-linux_aarch64.whl
+
+# Project Python dependencies
 RUN pip3 install \
     typing_extensions==4.13.2 \
     ftfy==6.2.3 \
@@ -106,6 +110,7 @@ PY
 RUN mim install 'mmdet==3.0.0'
 RUN mim install 'mmsegmentation==1.2.2'
 RUN mim install 'mmdet3d==1.4.0'
+RUN mim install "mmcv==2.0.1"
 
 WORKDIR /opt/sensor_msgs_ws
 RUN bash -lc "source /opt/ros/foxy/install/setup.bash && \
@@ -121,15 +126,11 @@ ENV QT_X11_NO_MITSHM=1
 
 # Clean up
 WORKDIR /home
-RUN rm -rf torchsparse mmcv
+RUN rm -rf /home/torchsparse
 
 # Workdir
 WORKDIR /veggie_drive
 
+
+
 CMD ["bash","-lc","tmux new-session -A -s ros_session"]
-
-
-
-
-
-

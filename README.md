@@ -140,8 +140,8 @@ ros2 topic echo /wildscenes_segmented --once
 Edit `wildscenes_segmentation.py`:
 
 ```python
-# Point cloud range (meters)
-point_cloud_range = [-50, -3.14159265359, -10, 50, 3.14159265359, 20]
+# Point cloud range (meters) - arrange for wider range of coverage
+point_cloud_range = [-50, -3.14159265359, -10, 100, 3.14159265359, 20]
 
 # Processing limits
 max_points = 200000  # Maximum points to process per frame
@@ -185,10 +185,6 @@ The system classifies points into these semantic classes:
 - ✅ **RViz visualization** with color-coded terrain classes
 - ✅ **Docker support** for easy deployment
 
-
-
-
-
 ## Results
 - Real-time terrain segmentation at 2 FPS
 - GPU-accelerated inference with CUDA
@@ -196,3 +192,162 @@ The system classifies points into these semantic classes:
 - Color-coded visualization in RViz
 - 90%+ point cloud coverage with 200K points per frame
 - Stable operation with comprehensive error handling
+
+
+# Returning 
+This version is saved after all the process above and rviz has been tested
+```bash
+xhost +local:docker
+
+docker run --rm -it \
+  --network host \
+  --runtime nvidia \
+  --privileged \
+  -e DISPLAY=$DISPLAY \
+  -e XAUTHORITY=$HOME/.Xauthority \
+  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -e ROS_DOMAIN_ID=42 \
+  -e ROS_LOCALHOST_ONLY=0 \
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $HOME/.Xauthority:$HOME/.Xauthority:ro \
+  -v $(pwd):/veggie_drive \
+  veggie:foxy \
+  bash
+  ```
+
+## Testing Livox SDK & ROS2 Driver 
+- mostly follow steps on https://github.com/Livox-SDK/livox_ros_driver2
+- will ask to set up https://github.com/Livox-SDK/Livox-SDK2/blob/master/README.md
+
+### Livox sdk
+- update samples/liv_lidar_quick_start/mid360_config.json
+- then run
+```
+cd /veggie_drive/veggie_ws/src/Livox-SDK2
+mkdir -p build && cd build
+cmake ..
+make
+
+cd build/samples/livox_lidar_quick_start
+./livox_lidar_quick_start ../../../samples/livox_lidar_quick_start/mid360_config.json
+```
+
+### Livox ROS Driver 2
+
+```bash
+# edit so livox publishes in format for wildscenes_node
+veggie_drive/veggie_ws/src/livox_ros_driver2/launch_ROS2/msg_MID360_launch.py
+xfer_format = 0
+
+cd /veggie_drive/veggie_ws
+rm -rf build install log
+source /opt/ros/foxy/setup.bash
+colcon build
+source install/setup.bash
+
+# Install Livox SDK2 + required ROS deps
+cd /veggie_drive/veggie_ws/src/Livox-SDK2
+mkdir -p build && cd build
+cmake ..
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+
+sudo apt-get update
+sudo apt-get install -y libpcl-dev ros-foxy-pcl-conversions ros-foxy-pcl-msgs ros-foxy-rviz2
+
+# launches Livox, WildScenes, and RealSense
+ros2 launch veggie_drive_pkg wildscenes_launch.py
+
+# Host visualization
+ros2 run rviz2 rviz2 --display-config /home/unitree/Desktop/veggie_drive/segmented_points.rviz
+```
+
+## Realsense ROS Driver
+- Install SDK + ROS drivers on the Jetson:
+  ```bash
+  sudo apt-get update
+  sudo apt-get install librealsense2-utils librealsense2-dev
+  sudo apt-get install ros-foxy-realsense2-camera ros-foxy-realsense2-description ros-foxy-vision-opencv
+  ```
+- Verify hardware:
+  ```bash
+  rs-enumerate-devices
+  realsense-viewer 
+  ```
+
+
+# New running Steps
+### Setup
+```bash
+lsusb #check for realsense
+
+xhost +local:docker
+
+echo $ROS_DOMAIN_ID
+echo $ROS_LOCALHOST_ONLY
+echo $RMW_IMPLEMENTATION
+
+# if any one of them are not set or are not (42, 0, rmw_cyclonedds_cpp)
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+```
+
+### Run Docker
+```bash
+  docker run --rm -it \
+    --network host \
+    --runtime nvidia \
+    --privileged \
+    --device /dev/bus/usb:/dev/bus/usb \
+    --device /dev/video0 --device /dev/video1 \
+    --device /dev/video2 --device /dev/video3 \
+    --device /dev/video4 --device /dev/video5 \
+    -e DISPLAY=$DISPLAY \
+    -e XAUTHORITY=$HOME/.Xauthority \
+    -e NVIDIA_DRIVER_CAPABILITIES=all \
+    -e ROS_DOMAIN_ID=42 \
+    -e ROS_LOCALHOST_ONLY=0 \
+    -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v $HOME/.Xauthority:$HOME/.Xauthority:ro \
+    -v $(pwd):/veggie_drive \
+    veggie:foxy bash
+```
+- Launch everything:
+  ```bash
+  cd veggie_ws 
+  source install/setup.bash
+
+  # ros bag replay
+  ros2 launch veggie_drive_pkg wildscenes_launch.py 
+  # live 
+  ros2 launch veggie_drive_pkg wildscenes_launch.py enable_livox:=true enable_realsense:=true
+  ```
+- On the host, open RViz with the provided config:
+  ```bash
+  source /opt/ros/foxy/setup.bash
+
+  ros2 run rviz2 rviz2 --display-config /home/unitree/Desktop/veggie_drive/segmented_points.rviz
+  ```
+
+
+### record bag
+```
+ros2 bag record \
+  /livox/imu \
+  /livox/lidar \
+  /wildscenes_segmented \
+  /camera/color/image_raw /camera/color/camera_info \
+  /camera/depth/image_rect_raw /camera/depth/camera_info \
+  /camera/depth/color/points
+
+
+ros2 bag record -a -o rosbag_/run_$(date +%Y%m%d_%H%M%S)```
+
+### play bag
+```
+ros2 bag play rosbag_/run_20251115_202031/run_20251115_202031_0.db3 --rate 4.0
+```

@@ -351,3 +351,25 @@ ros2 bag record -a -o rosbag_/run_$(date +%Y%m%d_%H%M%S)```
 ```
 ros2 bag play rosbag_/run_20251115_202031/run_20251115_202031_0.db3 --rate 4.0
 ```
+
+#### calibration
+```bash
+## Camera (realsense) intrinisic calibration
+# follow: https://docs.ros.org/en/kilted/p/camera_calibration/doc/tutorial_mono.html
+
+sudo apt install ros-foxy-camera-calibration
+
+# run tmux
+
+ros2 launch realsens2_camera rs_launch.py
+
+# measure checker board WXH (10 x 7), squares are 22.42mm (0.02)
+
+ros2 run camera_calibration cameracalibrator --approximate 0.1 --size 8x6 --square 0.02 image:=/camera/color/image_raw camera:=camera/color
+
+# saved to /tml/calibrationdata.tar.gz
+
+## Lidar (Livox) extrinsic calibration
+#follow : https://koide3.github.io/direct_visual_lidar_calibration/example/
+```
+use "veggie:calibration"

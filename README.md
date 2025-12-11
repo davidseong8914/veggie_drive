@@ -373,3 +373,22 @@ ros2 run camera_calibration cameracalibrator --approximate 0.1 --size 8x6 --squa
 #follow : https://koide3.github.io/direct_visual_lidar_calibration/example/
 ```
 use "veggie:calibration"
+
+docker run --rm -it \
+    --network host \
+    --runtime nvidia \
+    --privileged \
+    --device /dev/bus/usb:/dev/bus/usb \
+    --device /dev/video0 --device /dev/video1 \
+    --device /dev/video2 --device /dev/video3 \
+    --device /dev/video4 --device /dev/video5 \
+    -e DISPLAY=$DISPLAY \
+    -e XAUTHORITY=$HOME/.Xauthority \
+    -e NVIDIA_DRIVER_CAPABILITIES=all \
+    -e ROS_DOMAIN_ID=42 \
+    -e ROS_LOCALHOST_ONLY=0 \
+    -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v $HOME/.Xauthority:$HOME/.Xauthority:ro \
+    -v $(pwd):/veggie_drive \
+    veggie:calibration bash

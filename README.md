@@ -391,4 +391,14 @@ docker run --rm -it \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v $HOME/.Xauthority:$HOME/.Xauthority:ro \
     -v $(pwd):/veggie_drive \
-    veggie:calibration bash
+    veggie:depen bash
+
+
+  cd veggie_ws
+
+
+
+export CMAKE_PREFIX PATH=$CMAKE_PREFIX_PATH:/usr/local
+
+
+
